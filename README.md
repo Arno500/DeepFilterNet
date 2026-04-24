@@ -1,332 +1,187 @@
-# DeepFilterNet
-A Low Complexity Speech Enhancement Framework for Full-Band Audio (48kHz) using on Deep Filtering.
+# deep-filter-openvino
 
-![deepfilternet3](https://user-images.githubusercontent.com/16517898/225623209-a54fea75-ca00-404c-a394-c91d2d1146d2.svg)
+Fork of [DeepFilterNet](https://github.com/Rikorose/DeepFilterNet) with an
+OpenVINO inference backend so DeepFilterNet3 runs on the **Intel NPU** (Meteor
+Lake / Core Ultra and newer), Intel GPU, or CPU. Same denoise quality as
+upstream, same LADSPA controls, but about **11× less CPU time per audio
+frame** on the NPU — designed for low-battery voice denoise in EasyEffects
+and other LADSPA hosts.
 
-For PipeWire integration as a virtual noise suppression microphone look [here](https://github.com/Rikorose/DeepFilterNet/blob/main/ladspa/README.md).
+## Quick install (Debian/Ubuntu, amd64)
 
-### Demo
-
-https://github.com/Rikorose/DeepFilterNet/assets/16517898/79679fd7-de73-4c22-948c-891927c7d2ca
-
-To run the demo (linux only) use:
-```bash
-cargo +nightly run -p df-demo --features ui --bin df-demo --release
-```
-
-### News
-
-- New DeepFilterNet Demo: *DeepFilterNet: Perceptually Motivated Real-Time Speech Enhancement*
-  - Paper: https://arxiv.org/abs/2305.08227
-  - Video: https://youtu.be/EO7n96YwnyE
-
-- New Multi-Frame Filtering Paper: *Deep Multi-Frame Filtering for Hearing Aids*
-  - Paper: https://arxiv.org/abs/2305.08225
-
-- Real-time version and a LADSPA plugin
-  - [Pre-compiled binary](#deep-filter), no python dependencies. Usage: `deep-filter audio-file.wav`
-  - [LADSPA plugin](ladspa/) with pipewire filter-chain integration for real-time noise reduction on your mic.
-
-- DeepFilterNet2 Paper: *DeepFilterNet2: Towards Real-Time Speech Enhancement on Embedded Devices for Full-Band Audio*
-  - Paper: https://arxiv.org/abs/2205.05474
-  - Samples: https://rikorose.github.io/DeepFilterNet2-Samples/
-  - Demo: https://huggingface.co/spaces/hshr/DeepFilterNet2
-
-- Original DeepFilterNet Paper: *DeepFilterNet: A Low Complexity Speech Enhancement Framework for Full-Band Audio based on Deep Filtering*
-  - Paper: https://arxiv.org/abs/2110.05588
-  - Samples: https://rikorose.github.io/DeepFilterNet-Samples/
-  - Demo: https://huggingface.co/spaces/hshr/DeepFilterNet
-  - Video Lecture: https://youtu.be/it90gBqkY6k
-
-## Usage
-
-### deep-filter
-
-Download a pre-compiled deep-filter binary from the [release page](https://github.com/Rikorose/DeepFilterNet/releases/).
-You can use `deep-filter` to suppress noise in noisy .wav audio files. Currently, only wav files with a sampling rate of 48kHz are supported.
+On any Debian-derived distribution with the OpenVINO APT repo reachable:
 
 ```bash
-USAGE:
-    deep-filter [OPTIONS] [FILES]...
+# 1. Intel OpenVINO APT repo.
+curl -sSL https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB \
+    | sudo gpg --dearmor -o /usr/share/keyrings/intel-openvino.gpg
+echo "deb [signed-by=/usr/share/keyrings/intel-openvino.gpg] https://apt.repos.intel.com/openvino ubuntu24 main" \
+    | sudo tee /etc/apt/sources.list.d/intel-openvino.list
+sudo apt update
 
-ARGS:
-    <FILES>...
+# 2. Install the plugin. apt pulls in libopenvino and its device plugins.
+sudo apt install ./build/deep-filter-openvino_0.5.7_amd64.deb
 
-OPTIONS:
-    -D, --compensate-delay
-            Compensate delay of STFT and model lookahead
-    -h, --help
-            Print help information
-    -m, --model <MODEL>
-            Path to model tar.gz. Defaults to DeepFilterNet2.
-    -o, --out-dir <OUT_DIR>
-            [default: out]
-    --pf
-            Enable postfilter
-    -v, --verbose
-            Logging verbosity
-    -V, --version
-            Print version information
+# 3. Any LADSPA host (e.g. EasyEffects) -> pick DeepFilter in an input slot.
+sudo apt install easyeffects
 ```
 
-If you want to use the pytorch backend e.g. for GPU processing, see further below for the Python usage.
+The `ubuntu24 main` component is the one listed by the
+[official docs](https://docs.openvino.ai/2026/get-started/install-openvino/install-openvino-apt.html)
+and works across recent Debian/Ubuntu releases; Intel has not yet published
+a separate component per release.
 
-### DeepFilterNet Framework
+Build the `.deb` yourself:
 
-This framework supports Linux, MacOS and Windows. Training is only tested under Linux. The framework is structured as follows:
-
-* `libDF` contains Rust code used for data loading and augmentation.
-* `DeepFilterNet` contains DeepFilterNet code training, evaluation and visualization as well as pretrained model weights.
-* `pyDF` contains a Python wrapper of libDF STFT/ISTFT processing loop.
-* `pyDF-data` contains a Python wrapper of libDF dataset functionality and provides a pytorch data loader.
-* `ladspa` contains a LADSPA plugin for real-time noise suppression.
-* `models` contains pretrained for usage in DeepFilterNet (Python) or libDF/deep-filter (Rust)
-
-### DeepFilterNet Python: PyPI
-
-Install the DeepFilterNet Python wheel via pip:
 ```bash
-# Install cpu/cuda pytorch (>=1.9) dependency from pytorch.org, e.g.:
-pip install torch torchaudio -f https://download.pytorch.org/whl/cpu/torch_stable.html
-# Install DeepFilterNet
-pip install deepfilternet
-# Or install DeepFilterNet including data loading functionality for training (Linux only)
-pip install deepfilternet[train]
+tooling/build_deb.sh
+# -> build/deep-filter-openvino_0.5.7_amd64.deb
 ```
 
-To enhance noisy audio files using DeepFilterNet run
+## Optional: run on the NPU
+
+For Meteor Lake / Core Ultra CPUs, three more steps unlock the NPU:
+
 ```bash
-# Specify an output directory with --output-dir [OUTPUT_DIR]
-deepFilter path/to/noisy_audio.wav
+# a) Your user must be in the 'render' group to access /dev/accel/accel0.
+sudo gpasswd -a $USER render
+
+# b) Intel NPU user-space driver -- not in apt yet, fetched from GitHub.
+mkdir -p /tmp/npu && cd /tmp/npu
+curl -LO https://github.com/intel/linux-npu-driver/releases/download/v1.32.1/linux-npu-driver-v1.32.1.20260422-24767473183-ubuntu2404.tar.gz
+tar xzf linux-npu-driver-*.tar.gz
+sudo dpkg -i intel-fw-npu_*.deb intel-level-zero-npu_*.deb intel-driver-compiler-npu_*.deb
+
+# c) Log out + in so the render group takes effect, then verify.
+python3 -c "import openvino as ov; print(ov.Core().available_devices)"
+# expected: ['CPU', 'GPU', 'NPU']
 ```
 
-### Manual Installation
+The plugin picks the NPU automatically when it is present.
 
-Install cargo via [rustup](https://rustup.rs/). Usage of a `conda` or `virtualenv` recommended.
-Please read the comments and only execute the commands that you need.
+## Selecting the device
 
-Installation of python dependencies and libDF:
+`DFN_OV_DEVICE` overrides the default auto-selection:
+
+| Command                                     | What it does                                |
+|---------------------------------------------|---------------------------------------------|
+| unset (or `AUTO`, empty)                    | First available of NPU → GPU → CPU          |
+| `DFN_OV_DEVICE=NPU easyeffects`             | NPU only (fails if absent)                  |
+| `DFN_OV_DEVICE=CPU easyeffects`             | Force CPU (useful for A/B tests)            |
+| `DFN_OV_DEVICE=GPU easyeffects`             | Integrated GPU                              |
+| `DFN_OV_DEVICE=HETERO:NPU,CPU easyeffects`  | NPU where supported, CPU fallback per op    |
+
+Persistent setting:
+
 ```bash
-cd path/to/DeepFilterNet/  # cd into repository
-# Recommended: Install or activate a python env
-# Mandatory: Install cpu/cuda pytorch (>=1.8) dependency from pytorch.org, e.g.:
-pip install torch torchaudio -f https://download.pytorch.org/whl/cpu/torch_stable.html
-# Install build dependencies used to compile libdf and DeepFilterNet python wheels
-pip install maturin poetry
-
-#  Install remaining DeepFilterNet python dependencies
-# *Option A:* Install DeepFilterNet python wheel globally within your environment. Do this if you want use
-# this repos as is, and don't want to develop within this repository.
-poetry -C DeepFilterNet install -E train -E eval
-# *Option B:* If you want to develop within this repo, install only dependencies and work with the repository version
-poetry -C DeepFilterNet install -E train -E eval --no-root
-export PYTHONPATH=$PWD/DeepFilterNet # And set the python path correctly
-
-# Build and install libdf python package required for enhance.py
-maturin develop --release -m pyDF/Cargo.toml
-# *Optional*: Install libdfdata python package with dataset and dataloading functionality for training
-# Required build dependency: HDF5 headers (e.g. ubuntu: libhdf5-dev)
-maturin develop --release -m pyDF-data/Cargo.toml
-# If you have troubles with hdf5 you may try to build and link hdf5 statically:
-maturin develop --release --features hdf5-static -m pyDF-data/Cargo.toml
+mkdir -p ~/.config/environment.d
+echo 'DFN_OV_DEVICE=NPU' > ~/.config/environment.d/50-deepfilter.conf
 ```
 
-### Use DeepFilterNet from command line
+then log out and back in.
 
-To enhance noisy audio files using DeepFilterNet run
+## How the plugin finds OpenVINO
+
+Intel's OpenVINO APT packages install the core libraries into `/usr/lib/`
+(flat, not multi-arch) and the device plugins into
+`/usr/lib/openvino-<version>/`. The Rust `openvino-finder` used by the
+plugin does not search `/usr/lib` by default and only matches unversioned
+SONAMEs, so it would fail out of the box.
+
+On first use the plugin calls `ensure_openvino_lib_path()`, which scans:
+
+1. `$DFN_OV_LIBS_DIR` (env override; useful for dev against a pip wheel)
+2. `/usr/lib` (Intel APT layout)
+3. `/usr/lib/x86_64-linux-gnu` (Debian multiarch)
+4. `/opt/intel/openvino/runtime/lib/intel64` (Intel tarball)
+
+The first directory containing `libopenvino_c.so.*` wins. The plugin then
+builds a per-process shim of unversioned symlinks at
+`$TMPDIR/dfn-ovshim-<pid>/` and prepends it to `LD_LIBRARY_PATH` for this
+process only — no persistent symlinks on the host, nothing to clean up on
+OpenVINO upgrade. OpenVINO itself still auto-discovers its device plugins
+from `/usr/lib/openvino-<version>/` relative to the resolved library path.
+
+## Troubleshooting
+
+**`OpenVINO available devices: ['CPU']` but you have an NPU.**
 ```bash
-$ python DeepFilterNet/df/enhance.py --help
-usage: enhance.py [-h] [--model-base-dir MODEL_BASE_DIR] [--pf] [--output-dir OUTPUT_DIR] [--log-level LOG_LEVEL] [--compensate-delay]
-                  noisy_audio_files [noisy_audio_files ...]
+lsmod | grep intel_vpu           # kernel module loaded
+ls -la /dev/accel/accel0         # device exists, group 'render'
+groups                           # your user is in 'render'
+dpkg -l intel-level-zero-npu     # user-space driver installed
+```
+Fix whichever is missing.
 
-positional arguments:
-  noisy_audio_files     List of noise files to mix with the clean speech file.
-
-optional arguments:
-  -h, --help            show this help message and exit
-  --model-base-dir MODEL_BASE_DIR, -m MODEL_BASE_DIR
-                        Model directory containing checkpoints and config.
-                        To load a pretrained model, you may just provide the model name, e.g. `DeepFilterNet`.
-                        By default, the pretrained DeepFilterNet2 model is loaded.
-  --pf                  Post-filter that slightly over-attenuates very noisy sections.
-  --output-dir OUTPUT_DIR, -o OUTPUT_DIR
-                        Directory in which the enhanced audio files will be stored.
-  --log-level LOG_LEVEL
-                        Logger verbosity. Can be one of (debug, info, error, none)
-  --compensate-delay, -D
-                        Add some paddig to compensate the delay introduced by the real-time STFT/ISTFT implementation.
-
-# Enhance audio with original DeepFilterNet
-python DeepFilterNet/df/enhance.py -m DeepFilterNet path/to/noisy_audio.wav
-
-# Enhance audio with DeepFilterNet2
-python DeepFilterNet/df/enhance.py -m DeepFilterNet2 path/to/noisy_audio.wav
+**EasyEffects says "libdeep_filter_ladspa is not installed".**
+```bash
+dpkg -L deep-filter-openvino | grep ladspa
+# expected: /usr/lib/x86_64-linux-gnu/ladspa/libdeep_filter_ladspa.so
 ```
 
-### Use DeepFilterNet within your Python script
+**"DfOpenVino: no OpenVINO libs found in any of …" in the log.**
+The OpenVINO runtime is missing. Re-install:
+```bash
+sudo apt install libopenvino-2026.1.0 libopenvino-intel-cpu-plugin-2026.1.0 \
+                 libopenvino-auto-plugin-2026.1.0 libopenvino-hetero-plugin-2026.1.0 \
+                 libopenvino-onnx-frontend-2026.1.0 libopenvino-ir-frontend-2026.1.0
+```
+For NPU inference also install `libopenvino-intel-npu-plugin-2026.1.0`.
 
-```py
-from df import enhance, init_df
+**"Underrun detected (RTF: X). Processing too slow!" right after activating.**
+Harmless. The NPU compiles the graph on first use (~500 ms). The plugin
+auto-bumps its internal buffer and stabilises within a few frames.
 
-model, df_state, _ = init_df()  # Load default model
-enhanced_audio = enhance(model, df_state, noisy_audio)
+**Audible artefacts on NPU but not CPU.**
+Compare against `DFN_OV_DEVICE=CPU`. If the artefacts are NPU-specific,
+they are most likely a quantisation / driver issue; drop a sample and a
+reproducer into an issue.
+
+## Uninstall
+
+```bash
+sudo apt remove deep-filter-openvino
+# optionally also:
+sudo apt remove 'libopenvino-*' 'libopenvino-intel-*-plugin-*'
+sudo apt remove intel-fw-npu intel-level-zero-npu intel-driver-compiler-npu
 ```
 
-See [here](https://github.com/Rikorose/DeepFilterNet/blob/main/scripts/external_usage.py) for a full example.
+## Building from source
 
-### Training
+See [`DEVELOPMENT.md`](DEVELOPMENT.md) for the internals, ONNX graph surgery,
+and benchmarks.
 
-The entry point is `DeepFilterNet/df/train.py`. It expects a data directory containing HDF5 dataset
-as well as a dataset configuration json file.
+```bash
+# Python env used by the ONNX surgery (one-off).
+uv venv --python 3.11 pyenv/.venv
+source pyenv/.venv/bin/activate
+uv pip install openvino onnx numpy
 
-So, you first need to create your datasets in HDF5 format. Each dataset typically only
-holds training, validation, or test set of noise, speech or RIRs.
-```py
-# Install additional dependencies for dataset creation
-pip install h5py librosa soundfile
-# Go to DeepFilterNet python package
-cd path/to/DeepFilterNet/DeepFilterNet
-# Prepare text file (e.g. called training_set.txt) containing paths to .wav files
-#
-# usage: prepare_data.py [-h] [--num_workers NUM_WORKERS] [--max_freq MAX_FREQ] [--sr SR] [--dtype DTYPE]
-#                        [--codec CODEC] [--mono] [--compression COMPRESSION]
-#                        type audio_files hdf5_db
-#
-# where:
-#   type: One of `speech`, `noise`, `rir`
-#   audio_files: Text file containing paths to audio files to include in the dataset
-#   hdf5_db: Output HDF5 dataset.
-python df/scripts/prepare_data.py --sr 48000 speech training_set.txt TRAIN_SET_SPEECH.hdf5
-```
-All datasets should be made available in one dataset folder for the train script.
+# Regenerate the NPU-patched model tarballs from the stock upstream ones.
+python scripts/npu_export.py models/DeepFilterNet3_ll_onnx.tar.gz
+python scripts/npu_export.py models/DeepFilterNet3_onnx.tar.gz
 
-The dataset configuration file should contain 3 entries: "train", "valid", "test". Each of those
-contains a list of datasets (e.g. a speech, noise and a RIR dataset). You can use multiple speech
-or noise dataset. Optionally, a sampling factor may be specified that can be used to over/under-sample
-the dataset. Say, you have a specific dataset with transient noises and want to increase the amount
-of non-stationary noises by oversampling. In most cases you want to set this factor to 1.
-
-<details>
-  <summary>Dataset config example:</summary>
-<p>
-  
-`dataset.cfg`
-
-```json
-{
-  "train": [
-    [
-      "TRAIN_SET_SPEECH.hdf5",
-      1.0
-    ],
-    [
-      "TRAIN_SET_NOISE.hdf5",
-      1.0
-    ],
-    [
-      "TRAIN_SET_RIR.hdf5",
-      1.0
-    ]
-  ],
-  "valid": [
-    [
-      "VALID_SET_SPEECH.hdf5",
-      1.0
-    ],
-    [
-      "VALID_SET_NOISE.hdf5",
-      1.0
-    ],
-    [
-      "VALID_SET_RIR.hdf5",
-      1.0
-    ]
-  ],
-  "test": [
-    [
-      "TEST_SET_SPEECH.hdf5",
-      1.0
-    ],
-    [
-      "TEST_SET_NOISE.hdf5",
-      1.0
-    ],
-    [
-      "TEST_SET_RIR.hdf5",
-      1.0
-    ]
-  ]
-}
+# Build + package.
+tooling/build_deb.sh
 ```
 
-</p>
-</details>
+Pick the tract backend (CPU only, upstream-equivalent) instead:
 
-Finally, start the training script. The training script may create a model `base_dir` if not
-existing used for logging, some audio samples, model checkpoints, and config. If no config file is
-found, it will create a default config. See
-[DeepFilterNet/pretrained_models/DeepFilterNet](https://github.com/Rikorose/DeepFilterNet/blob/main/DeepFilterNet/pretrained_models/DeepFilterNet/config.ini)
-for a config file.
-```py
-# usage: train.py [-h] [--debug] data_config_file data_dir base_dir
-python df/train.py path/to/dataset.cfg path/to/data_dir/ path/to/base_dir/
+```bash
+cargo build --release -p deep-filter-ladspa
+# Plugin .so lands at target/release/libdeep_filter_ladspa.so.
 ```
 
-## Citation Guide
+Pick the OpenVINO backend directly, without packaging:
 
-To reproduce any metrics, we recomend to use the python implementation via `pip install deepfilternet`.
-
-If you use this framework, please cite: *DeepFilterNet: A Low Complexity Speech Enhancement Framework for Full-Band Audio based on Deep Filtering*
-```bibtex
-@inproceedings{schroeter2022deepfilternet,
-  title={{DeepFilterNet}: A Low Complexity Speech Enhancement Framework for Full-Band Audio based on Deep Filtering}, 
-  author = {Schröter, Hendrik and Escalante-B., Alberto N. and Rosenkranz, Tobias and Maier, Andreas},
-  booktitle={ICASSP 2022 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP)},
-  year={2022},
-  organization={IEEE}
-}
+```bash
+cargo build --profile release-lto -p deep-filter-ladspa \
+    --no-default-features --features "default-model-ll openvino-backend"
 ```
 
-If you use the DeepFilterNet2 model, please cite: *DeepFilterNet2: Towards Real-Time Speech Enhancement on Embedded Devices for Full-Band Audio*
+## Licences
 
-```bibtex
-@inproceedings{schroeter2022deepfilternet2,
-  title = {{DeepFilterNet2}: Towards Real-Time Speech Enhancement on Embedded Devices for Full-Band Audio},
-  author = {Schröter, Hendrik and Escalante-B., Alberto N. and Rosenkranz, Tobias and Maier, Andreas},
-  booktitle={17th International Workshop on Acoustic Signal Enhancement (IWAENC 2022)},
-  year = {2022},
-}
-```
-
-If you use the DeepFilterNet3 model, please cite: *DeepFilterNet: Perceptually Motivated Real-Time Speech Enhancement*
-
-```bibtex
-@inproceedings{schroeter2023deepfilternet3,
-  title = {{DeepFilterNet}: Perceptually Motivated Real-Time Speech Enhancement},
-  author = {Schröter, Hendrik and Rosenkranz, Tobias and Escalante-B., Alberto N. and Maier, Andreas},
-  booktitle={INTERSPEECH},
-  year = {2023},
-}
-```
-
-If you use the multi-frame beamforming algorithms. please cite *Deep Multi-Frame Filtering for Hearing Aids*
-
-```bibtex
-@inproceedings{schroeter2023deep_mf,
-  title = {Deep Multi-Frame Filtering for Hearing Aids},
-  author = {Schröter, Hendrik and Rosenkranz, Tobias and Escalante-B., Alberto N. and Maier, Andreas},
-  booktitle={INTERSPEECH},
-  year = {2023},
-}
-```
-
-## License
-
-DeepFilterNet is free and open source! All code in this repository is dual-licensed under either:
-
-* MIT License ([LICENSE-MIT](LICENSE-MIT) or [http://opensource.org/licenses/MIT](http://opensource.org/licenses/MIT))
-* Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or [http://www.apache.org/licenses/LICENSE-2.0](http://www.apache.org/licenses/LICENSE-2.0))
-
-at your option. This means you can select the license you prefer!
-
-Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in the work by you, as defined in the Apache-2.0 license, shall be dual licensed as above, without any additional terms or conditions.
+* DeepFilterNet code and model weights: MIT or Apache-2.0, Hendrik Schröter
+  and contributors (https://github.com/Rikorose/DeepFilterNet).
+* OpenVINO runtime: Apache-2.0, Intel Corporation
+  (https://github.com/openvinotoolkit/openvino).
