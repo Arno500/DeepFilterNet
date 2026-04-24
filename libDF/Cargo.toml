@@ -78,6 +78,16 @@ tract = [
   "dep:flate2",
   "dep:tar",
 ]
+openvino = [
+  "transforms",
+  "logging",
+  "dep:openvino",
+  "dep:rust-ini",
+  "dep:ndarray",
+  "dep:anyhow",
+  "dep:flate2",
+  "dep:tar",
+]
 default-model = [] # Include default DFN3 model
 default-model-ll = [] # Include default DFN3 low latency model
 nightly-features = []
@@ -124,6 +134,7 @@ tract-core = { version = "^0.21.4", optional = true }
 tract-onnx = { version = "^0.21.4", optional = true }
 tract-pulse = { version = "^0.21.4", optional = true }
 tract-hir = { version = "^0.21.4", optional = true }
+openvino = { version = "^0.9", optional = true, features = ["runtime-linking"] }
 flate2 = { version = "1.0.24", optional = true }
 tar = { version = "0.4.38", optional = true }
 wasm-bindgen = { version = "0.2.87", optional = true }
@@ -140,6 +151,7 @@ rand = "0.8"
 rstest = "0.19"
 env_logger = "0.11"
 log = { version = "0.4", features = ["std"] }
+libc = "0.2"
 
 [package.metadata.capi.header]
 name = "deep_filter"

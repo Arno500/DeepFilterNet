@@ -32,6 +32,8 @@ mod capi;
 pub mod logging;
 #[cfg(feature = "tract")]
 pub mod tract;
+#[cfg(feature = "openvino")]
+pub mod openvino;
 
 #[cfg(feature = "wasm")]
 mod wasm;
