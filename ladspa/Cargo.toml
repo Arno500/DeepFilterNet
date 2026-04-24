@@ -11,11 +11,13 @@ crate-type = ["cdylib"]
 [features]
 dbus = ["dep:zbus", "dep:event-listener"]
 default-model-ll = ["deep_filter/default-model-ll"]
-default = ["default-model-ll"]
+default = ["default-model-ll", "tract-backend"]
+# Select exactly one backend:
+tract-backend = ["deep_filter/tract"]
+openvino-backend = ["deep_filter/openvino"]
 
 [dependencies]
 deep_filter = { path = "../libDF", default-features = false, features = [
-  "tract",
   "use-jemalloc",
   "default-model",
 ] }

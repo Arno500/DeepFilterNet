@@ -8,7 +8,10 @@ use std::sync::{
 use std::thread::{self, sleep, JoinHandle};
 use std::time::{Duration, Instant};
 
-use df::tract::*;
+#[cfg(all(feature = "tract-backend", not(feature = "openvino-backend")))]
+use df::tract::{DfParams, DfTract as DfModel, RuntimeParams};
+#[cfg(feature = "openvino-backend")]
+use df::openvino::{DfOpenVino as DfModel, DfParams, RuntimeParams};
 use ladspa::{DefaultValue, Plugin, PluginDescriptor, Port, PortConnection, PortDescriptor};
 use ndarray::prelude::*;
 use uuid::Uuid;
@@ -66,7 +69,7 @@ struct DfPlugin {
 
 const ID_MONO: u64 = 7843795;
 const ID_STEREO: u64 = 7843796;
-static mut MODEL: Option<DfTract> = None;
+static mut MODEL: Option<DfModel> = None;
 
 fn log_format(buf: &mut env_logger::fmt::Formatter, record: &log::Record) -> io::Result<()> {
     let ts = buf.timestamp_millis();
@@ -181,7 +184,7 @@ fn init_df(channels: usize) -> (usize, usize) {
 
     let df_params = DfParams::default();
     let r_params = RuntimeParams::default_with_ch(channels);
-    let df = DfTract::new(df_params, &r_params).expect("Could not initialize DeepFilter runtime");
+    let df = DfModel::new(df_params, &r_params).expect("Could not initialize DeepFilter runtime");
     let (sr, frame_size) = (df.sr, df.hop_size);
     unsafe { MODEL = Some(df) };
     (sr, frame_size)
