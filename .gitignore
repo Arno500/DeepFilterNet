@@ -146,3 +146,12 @@ dmypy.json
 
 # IDE
 .idea
+
+### OpenVINO fork ###
+
+# Local OpenVINO venv created by `uv` for scripts/npu_export.py
+pyenv/
+
+# .deb build output
+build/*.deb
+build/deep-filter-openvino_*/
